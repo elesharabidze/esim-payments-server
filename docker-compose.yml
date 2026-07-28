@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: esim
+      POSTGRES_PASSWORD: esim
+      POSTGRES_DB: esim
+    ports:
+      - "5432:5432"
+    volumes:
+      - esim_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  esim_postgres_data:
