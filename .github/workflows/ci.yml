@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # The e2e suite talks to a real Postgres rather than a stub, so the schema, the enum
+    # column and the unique constraint on esims.orderId are all exercised for real.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: esim
+          POSTGRES_PASSWORD: esim
+          POSTGRES_DB: esim
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      FRONTEND_URL: http://localhost:5173
+      BACKEND_URL: http://localhost:3000
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_USERNAME: esim
+      DB_PASSWORD: esim
+      DB_NAME: esim
+      PAYMENT_PROVIDER: mock
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint:check
+
+      - name: Build
+        run: npm run build
+
+      - name: Unit tests
+        run: npm test
+
+      - name: End-to-end tests
+        run: npm run test:e2e

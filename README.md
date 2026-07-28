@@ -1,8 +1,38 @@
 # eSIM Store - Backend
 
+[![CI](https://github.com/elesharabidze/esim-payments-server/actions/workflows/ci.yml/badge.svg)](https://github.com/elesharabidze/esim-payments-server/actions/workflows/ci.yml)
+
 NestJS + TypeORM + PostgreSQL backend for a demo eSIM storefront, integrated with the
 [E-XEZINE PSP Core API](https://docs.e-xezine.az/en/) (a BeGateway-based payment gateway)
 for checkout.
+
+## A note on E-XEZINE credentials
+
+**This was built without E-XEZINE credentials, because they cannot be obtained by a developer
+working alone.** The Shop ID and Secret Key are issued from the
+[backoffice](https://docs.e-xezine.az/en/using_api/id_key/) to an onboarded merchant, and
+E-XEZINE has no standalone sandbox to sign up for instead - their
+[test mode](https://docs.e-xezine.az/en/using_api/testing/) is a `"test": true` flag on
+transactions from a shop you already have ("No need to create another shop or account for
+tests"). Signing up requires a company and a taxpayer ID.
+
+So the integration is written against the published API and the parts that do not require the
+network are tested, rather than left as unexercised code:
+
+- **`ExezineProvider`** is the real integration - `POST /ctp/api/checkouts` with HTTP Basic
+  auth, the hosted-payment-page redirect, `GET /ctp/api/checkouts/:token` for authoritative
+  status, and RSA-SHA256 verification of the webhook's `Content-Signature` header.
+- **`exezine.provider.spec.ts`** pins it down without a gateway: the outgoing request body is
+  asserted field by field against the documented shape, every documented status is checked
+  through the mapping, and the signature verification is exercised end to end against an RSA
+  keypair generated in the test - valid signature accepted, tampered body rejected, wrong key
+  rejected, missing header rejected, unconfigured key failing closed.
+- **`MockProvider`** implements the same interface so the whole purchase flow is demoable.
+
+What is *not* proven is the wire format against the live gateway: whether E-XEZINE accepts
+these exact requests and what its real webhook body looks like. Supplying credentials
+(`PAYMENT_PROVIDER=exezine` plus the three `EXEZINE_*` values) switches providers with no code
+change anywhere else, which is the point of the interface.
 
 ## Stack
 
@@ -28,50 +58,38 @@ src/
   config/     Env parsing (configuration.ts) and boot-time validation (env.validation.ts)
 ```
 
-### Why a mock payment provider
+### The mock payment provider
 
-This project was built without E-XEZINE sandbox credentials. Rather than leaving the payment
-integration untestable, `PaymentProvider` is an interface with two implementations that are
-selected purely by config (`PAYMENT_PROVIDER=mock|exezine`, see `.env.example`):
+`PaymentProvider` is an interface with two implementations selected purely by config
+(`PAYMENT_PROVIDER=mock|exezine`, see `.env.example`). `MockProvider` simulates the gateway
+in-process: `createCheckout()` returns a redirect URL into this app's own
+`/mock-checkout/:token` frontend page - a realistic card form where the **card number decides
+the outcome**, mirroring how real PSP test modes work. Submitting the card calls back into
+this same backend to resolve the checkout, exercising the exact same
+order-status/webhook/eSIM-provisioning code path a real payment would.
 
-- `ExezineProvider` implements the real integration exactly as documented at
-  docs.e-xezine.az: it creates a checkout token via `POST /ctp/api/checkouts` (HTTP Basic auth
-  with Shop ID/Secret Key), redirects the customer to the hosted payment page, and verifies
-  the webhook's `Content-Signature` header (RSA-SHA256 over the raw request body) using the
-  public key from the E-XEZINE backoffice.
-- `MockProvider` implements the identical `PaymentProvider` contract but simulates the gateway
-  in-process: `createCheckout()` returns a redirect URL into this app's own
-  `/mock-checkout/:token` frontend page - a realistic card form where the **card number
-  decides the outcome**, mirroring how real PSP test modes work. Submitting the card calls
-  back into this same backend to resolve the checkout, exercising the exact same
-  order-status/webhook/eSIM-provisioning code path a real payment would.
+Test cards (also served from `GET /api/payments/mock-test-cards`):
 
-  Test cards (also served from `GET /api/payments/mock-test-cards`):
+| Card number           | Outcome    | Result                       |
+| --------------------- | ---------- | ---------------------------- |
+| `4242 4242 4242 4242` | successful | order paid, eSIM provisioned |
+| `4000 0000 0000 0002` | declined   | order declined, no eSIM      |
+| `4000 0000 0000 9995` | failed     | order failed, no eSIM        |
 
-  | Card number           | Outcome     | Result                        |
-  | --------------------- | ----------- | ----------------------------- |
-  | `4242 4242 4242 4242` | successful  | order paid, eSIM provisioned  |
-  | `4000 0000 0000 0002` | declined    | order declined, no eSIM       |
-  | `4000 0000 0000 9995` | failed      | order failed, no eSIM         |
+The number is Luhn-checked and the expiry validated (a bad/expired card returns `400`, as a
+card-entry error distinct from a decline); any other valid card approves. The submitted card is
+used only to derive the outcome and is never stored - mirroring the PCI rule that card data must
+not touch merchant storage.
 
-  The number is Luhn-checked and the expiry validated (a bad/expired card returns `400`, as a
-  card-entry error distinct from a decline); any other valid card approves. The submitted card
-  is used only to derive the outcome and is never stored - mirroring the PCI rule that card
-  data must not touch merchant storage.
+A checkout's state lives in the `orders` table rather than in the provider instance: on a
+serverless host the process that creates a checkout is rarely the one that later reads it back,
+so an in-memory store would lose the token between requests. The order row already carries
+everything a checkout needs, and the description and return URL are rebuilt from the same
+helpers `OrdersService` used to create them.
 
-  A checkout's state lives in the `orders` table rather than in the provider instance: on a
-  serverless host the process that creates a checkout is rarely the one that later reads it
-  back, so an in-memory store would lose the token between requests. The order row already
-  carries everything a checkout needs, and the description and return URL are rebuilt from the
-  same helpers `OrdersService` used to create them.
-
-  The whole `/api/payments/mock/*` surface is guarded by `MockOnlyGuard` and answers `404`
-  unless the mock provider is the active one - otherwise, with real credentials configured,
-  anyone holding a payment token could settle an order without paying.
-
-Because `OrdersService` only depends on the `PaymentProvider` interface, dropping in real
-E-XEZINE credentials (`PAYMENT_PROVIDER=exezine`, `EXEZINE_SHOP_ID`, `EXEZINE_SECRET_KEY`,
-`EXEZINE_WEBHOOK_PUBLIC_KEY`) requires no code changes anywhere else in the app.
+The whole `/api/payments/mock/*` surface is guarded by `MockOnlyGuard` and answers `404` unless
+the mock provider is the active one - otherwise, with real credentials configured, anyone
+holding a payment token could settle an order without paying.
 
 ### Webhook handling
 
@@ -130,9 +148,21 @@ API is served at `http://localhost:3000/api`.
 ### 4. Test
 
 ```bash
-npm test          # unit tests
-npm run test:e2e  # e2e test against a real Postgres connection (uses the same DB_* env vars)
+npm test           # 47 unit tests
+npm run test:e2e   # 4 e2e tests over HTTP against a real Postgres (same DB_* env vars)
+npm run lint:check # eslint without --fix, as CI runs it
 ```
+
+Both suites plus lint and build run on every push (`.github/workflows/ci.yml`), with the e2e
+tests against a Postgres service container rather than a stubbed repository.
+
+Worth knowing what the tests actually cover, given the payment integration cannot reach a live
+gateway: `exezine.provider.spec.ts` asserts the outgoing request body field by field against the
+documented shape, checks every documented status through the mapping, and verifies the webhook
+signature logic against an RSA keypair generated in the test - a tampered body, a signature from
+the wrong key, a missing header and an unconfigured public key are each confirmed to be
+rejected. The e2e suite drives the whole purchase over HTTP: browse, order, checkout, pay,
+eSIM issued, plus the decline and bad-card branches.
 
 ## API summary
 
