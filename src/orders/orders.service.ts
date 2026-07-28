@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { Order } from './entities/order.entity';
 import { OrderStatus } from './order-status.enum';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { checkoutDescription, checkoutReturnUrl } from './checkout-details';
 import { CatalogService } from '../catalog/catalog.service';
 import { EsimService } from '../esim/esim.service';
 import {
@@ -66,9 +67,6 @@ export class OrdersService {
       throw new BadRequestException('Order is already paid');
     }
 
-    const planLabel = order.plan.unlimitedData ? 'Unlimited data' : `${order.plan.dataAmountGb}GB`;
-    const description = `${order.plan.countryName} eSIM - ${planLabel} / ${order.plan.validityDays} days`;
-
     const frontendUrl = this.config.get<string>('frontendUrl')!;
     const backendUrl = this.config.get<string>('backendUrl')!;
 
@@ -76,9 +74,9 @@ export class OrdersService {
       orderId: order.id,
       amountMinorUnits: order.amountMinorUnits,
       currency: order.currency,
-      description,
+      description: checkoutDescription(order.plan),
       customerEmail: order.customerEmail,
-      returnUrl: `${frontendUrl}/checkout/return`,
+      returnUrl: checkoutReturnUrl(frontendUrl),
       notificationUrl: `${backendUrl}/api/payments/webhook`,
     });
 

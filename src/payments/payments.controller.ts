@@ -76,15 +76,7 @@ export class PaymentsController {
 
   @Get('mock/:token')
   getMockCheckout(@Param('token') token: string) {
-    const record = this.mockProvider.getMockCheckout(token);
-    return {
-      token: record.token,
-      orderId: record.orderId,
-      amountMinorUnits: record.amountMinorUnits,
-      currency: record.currency,
-      description: record.description,
-      status: record.status,
-    };
+    return this.mockProvider.getMockCheckout(token);
   }
 
   /** Test cards shown on the mock hosted page, so the list lives in one place (the backend). */
@@ -96,8 +88,9 @@ export class PaymentsController {
   /**
    * Mock equivalent of submitting the card on E-XEZINE's hosted page. The card number
    * determines the outcome (test-cards.ts); a malformed or expired card is rejected as a
-   * 400 card-entry error, distinct from a payment decline. On success/decline/fail we run
-   * the same refreshStatus() path the real webhook triggers, then hand back the return URL.
+   * 400 card-entry error, distinct from a payment decline. The outcome is applied through
+   * applyPaymentStatus() - the same path the real webhook ends up in, so provisioning and
+   * the terminal-state guards behave identically - then we hand back the return URL.
    */
   @Post('mock/:token/pay')
   async payMockCheckout(@Param('token') token: string, @Body() dto: PayMockCheckoutDto) {
@@ -105,11 +98,15 @@ export class PaymentsController {
     if (cardError) {
       throw new BadRequestException(cardError);
     }
-    const { record, redirectUrl } = this.mockProvider.resolveMockCheckoutByCard(
-      token,
-      dto.cardNumber,
-    );
-    await this.orders.refreshStatus(record.orderId);
+    const { orderId, outcome, uid, redirectUrl } =
+      await this.mockProvider.resolveMockCheckoutByCard(token, dto.cardNumber);
+    const order = await this.orders.findOne(orderId);
+    await this.orders.applyPaymentStatus(order, {
+      status: outcome,
+      uid,
+      amountMinorUnits: order.amountMinorUnits,
+      currency: order.currency,
+    });
     return { redirectUrl };
   }
 }
