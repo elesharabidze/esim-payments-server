@@ -40,6 +40,7 @@ import { Esim } from './esim/entities/esim.entity';
             ? { rejectUnauthorized: config.get<boolean>('database.sslRejectUnauthorized') }
             : false,
           poolSize: config.get<number>('database.poolSize'),
+          retryAttempts: config.get<number>('database.retryAttempts'),
           entities: [Plan, Order, Esim],
           synchronize: config.get<boolean>('database.synchronize'),
         };

@@ -25,6 +25,10 @@ export default () => ({
     // Each serverless instance serves one request at a time, so a large pool just
     // burns through the connection limit of the database.
     poolSize: parseInt(process.env.DB_POOL_MAX ?? (process.env.VERCEL ? '1' : '10'), 10),
+    // TypeORM's default of 10 retries at 3s each outlives a serverless
+    // invocation, so an unreachable database surfaces as an opaque
+    // FUNCTION_INVOCATION_FAILED timeout instead of the actual connection error.
+    retryAttempts: parseInt(process.env.DB_RETRY_ATTEMPTS ?? (process.env.VERCEL ? '2' : '10'), 10),
   },
   payments: {
     // Explicit override, otherwise infer from whether E-XEZINE credentials are present.
