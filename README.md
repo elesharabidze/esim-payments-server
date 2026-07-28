@@ -37,9 +37,23 @@ selected purely by config (`PAYMENT_PROVIDER=mock|exezine`, see `.env.example`):
   public key from the E-XEZINE backoffice.
 - `MockProvider` implements the identical `PaymentProvider` contract but simulates the gateway
   in-process: `createCheckout()` returns a redirect URL into this app's own
-  `/mock-checkout/:token` frontend page, where a developer can click "Pay successfully" or
-  "Decline", which calls back into this same backend to resolve the checkout - exercising the
-  exact same order-status/webhook/eSIM-provisioning code path a real payment would.
+  `/mock-checkout/:token` frontend page - a realistic card form where the **card number
+  decides the outcome**, mirroring how real PSP test modes work. Submitting the card calls
+  back into this same backend to resolve the checkout, exercising the exact same
+  order-status/webhook/eSIM-provisioning code path a real payment would.
+
+  Test cards (also served from `GET /api/payments/mock-test-cards`):
+
+  | Card number           | Outcome     | Result                        |
+  | --------------------- | ----------- | ----------------------------- |
+  | `4242 4242 4242 4242` | successful  | order paid, eSIM provisioned  |
+  | `4000 0000 0000 0002` | declined    | order declined, no eSIM       |
+  | `4000 0000 0000 9995` | failed      | order failed, no eSIM         |
+
+  The number is Luhn-checked and the expiry validated (a bad/expired card returns `400`, as a
+  card-entry error distinct from a decline); any other valid card approves. The submitted card
+  is used only to derive the outcome and is never stored - mirroring the PCI rule that card
+  data must not touch merchant storage.
 
 Because `OrdersService` only depends on the `PaymentProvider` interface, dropping in real
 E-XEZINE credentials (`PAYMENT_PROVIDER=exezine`, `EXEZINE_SHOP_ID`, `EXEZINE_SECRET_KEY`,
@@ -115,7 +129,8 @@ npm run test:e2e  # e2e test against a real Postgres connection (uses the same D
 | POST   | `/api/orders/:id/refresh-status`  | Re-sync order status from the payment provider |
 | POST   | `/api/payments/webhook`           | E-XEZINE notification endpoint                 |
 | GET    | `/api/payments/mock/:token`       | (mock provider only) checkout summary          |
-| POST   | `/api/payments/mock/:token/simulate` | (mock provider only) resolve as successful/declined |
+| GET    | `/api/payments/mock-test-cards`   | (mock provider only) list of test cards        |
+| POST   | `/api/payments/mock/:token/pay`   | (mock provider only) submit a card, resolves the checkout |
 
 ## Known simplifications (demo project)
 

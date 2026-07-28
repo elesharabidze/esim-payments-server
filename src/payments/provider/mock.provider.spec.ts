@@ -45,6 +45,24 @@ describe('MockProvider', () => {
     expect(status.uid).toBe(url.searchParams.get('uid'));
   });
 
+  it('resolves by card number, mapping the PAN to an outcome', async () => {
+    const declined = await provider.createCheckout(baseParams);
+    provider.resolveMockCheckoutByCard(declined.token, '4000 0000 0000 0002');
+    expect((await provider.getCheckoutStatus(declined.token)).status).toBe('declined');
+
+    const failed = await provider.createCheckout(baseParams);
+    provider.resolveMockCheckoutByCard(failed.token, '4000 0000 0000 9995');
+    expect((await provider.getCheckoutStatus(failed.token)).status).toBe('failed');
+
+    const approved = await provider.createCheckout(baseParams);
+    const { redirectUrl } = provider.resolveMockCheckoutByCard(
+      approved.token,
+      '4242 4242 4242 4242',
+    );
+    expect(new URL(redirectUrl).searchParams.get('status')).toBe('successful');
+    expect((await provider.getCheckoutStatus(approved.token)).status).toBe('successful');
+  });
+
   it('throws NotFoundException for an unknown token', async () => {
     await expect(provider.getCheckoutStatus('does-not-exist')).rejects.toThrow(NotFoundException);
     expect(() => provider.getMockCheckout('does-not-exist')).toThrow(NotFoundException);

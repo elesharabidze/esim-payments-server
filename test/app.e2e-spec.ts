@@ -76,17 +76,81 @@ describe('eSIM purchase flow (e2e)', () => {
     expect(mockCheckout.body.orderId).toBe(orderId);
     expect(mockCheckout.body.amountMinorUnits).toBe(100);
 
-    const simulateResponse = await request(server)
-      .post(`/api/payments/mock/${token}/simulate`)
-      .send({ outcome: 'successful' })
+    const payResponse = await request(server)
+      .post(`/api/payments/mock/${token}/pay`)
+      .send({
+        cardNumber: '4242 4242 4242 4242',
+        expMonth: 12,
+        expYear: new Date().getFullYear() + 1,
+        cvc: '123',
+        holder: 'E2E Tester',
+      })
       .expect(201);
-    expect(simulateResponse.body.redirectUrl).toContain('status=successful');
+    expect(payResponse.body.redirectUrl).toContain('status=successful');
 
     const finalOrder = await request(server).get(`/api/orders/${orderId}`).expect(200);
     expect(finalOrder.body.status).toBe('paid');
     expect(finalOrder.body.esim).toBeTruthy();
     expect(finalOrder.body.esim.iccid).toHaveLength(19);
     expect(finalOrder.body.esim.activationCode).toMatch(/^LPA:1\$/);
+  });
+
+  it('declines the order when the decline test card is used, and issues no eSIM', async () => {
+    const server = app.getHttpServer();
+
+    const orderId = (
+      await request(server)
+        .post('/api/orders')
+        .send({ planId: plan.id, customerEmail: 'decline@example.com' })
+        .expect(201)
+    ).body.id;
+
+    const redirectUrl: string = (
+      await request(server).post(`/api/orders/${orderId}/checkout`).expect(201)
+    ).body.redirectUrl;
+    const token = redirectUrl.split('/mock-checkout/')[1];
+
+    const payResponse = await request(server)
+      .post(`/api/payments/mock/${token}/pay`)
+      .send({
+        cardNumber: '4000 0000 0000 0002',
+        expMonth: 12,
+        expYear: new Date().getFullYear() + 1,
+        cvc: '123',
+        holder: 'E2E Tester',
+      })
+      .expect(201);
+    expect(payResponse.body.redirectUrl).toContain('status=declined');
+
+    const finalOrder = await request(server).get(`/api/orders/${orderId}`).expect(200);
+    expect(finalOrder.body.status).toBe('declined');
+    expect(finalOrder.body.esim).toBeFalsy();
+  });
+
+  it('rejects an invalid card number with a 400', async () => {
+    const server = app.getHttpServer();
+
+    const orderId = (
+      await request(server)
+        .post('/api/orders')
+        .send({ planId: plan.id, customerEmail: 'badcard@example.com' })
+        .expect(201)
+    ).body.id;
+    const redirectUrl: string = (
+      await request(server).post(`/api/orders/${orderId}/checkout`).expect(201)
+    ).body.redirectUrl;
+    const token = redirectUrl.split('/mock-checkout/')[1];
+
+    await request(server)
+      .post(`/api/payments/mock/${token}/pay`)
+      .send({
+        cardNumber: '4242 4242 4242 4241',
+        expMonth: 12,
+        expYear: new Date().getFullYear() + 1,
+        cvc: '123',
+        holder: 'E2E Tester',
+      })
+      .expect(400);
   });
 
   it('rejects an order for a non-existent plan with 404', async () => {

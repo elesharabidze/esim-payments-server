@@ -7,6 +7,7 @@ import {
   CreateCheckoutResult,
   PaymentProvider,
 } from './payment-provider.interface';
+import { MockOutcome, outcomeForCard } from './test-cards';
 
 interface MockCheckoutRecord {
   token: string;
@@ -84,9 +85,22 @@ export class MockProvider implements PaymentProvider {
     return record;
   }
 
+  /**
+   * Resolves a checkout from a submitted card number, the way the real hosted page would:
+   * the PAN maps to an outcome (see test-cards.ts) and is then discarded. Card data is
+   * never stored on the record - mirroring the PCI rule that it must not touch merchant
+   * storage - only the derived status and a generated uid are kept.
+   */
+  resolveMockCheckoutByCard(
+    token: string,
+    cardNumber: string,
+  ): { record: MockCheckoutRecord; redirectUrl: string } {
+    return this.resolveMockCheckout(token, outcomeForCard(cardNumber));
+  }
+
   resolveMockCheckout(
     token: string,
-    outcome: 'successful' | 'declined',
+    outcome: MockOutcome,
   ): { record: MockCheckoutRecord; redirectUrl: string } {
     const record = this.getMockCheckout(token);
     record.status = outcome;

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -16,7 +17,8 @@ import { Request } from 'express';
 import { OrdersService } from '../orders/orders.service';
 import { MockProvider } from './provider/mock.provider';
 import { PAYMENT_PROVIDER, PaymentProvider } from './provider/payment-provider.interface';
-import { SimulateMockPaymentDto } from './dto/simulate-mock-payment.dto';
+import { PayMockCheckoutDto } from './dto/pay-mock-checkout.dto';
+import { TEST_CARDS, validateCard } from './provider/test-cards';
 
 @Controller('payments')
 export class PaymentsController {
@@ -85,9 +87,28 @@ export class PaymentsController {
     };
   }
 
-  @Post('mock/:token/simulate')
-  async simulateMockCheckout(@Param('token') token: string, @Body() dto: SimulateMockPaymentDto) {
-    const { record, redirectUrl } = this.mockProvider.resolveMockCheckout(token, dto.outcome);
+  /** Test cards shown on the mock hosted page, so the list lives in one place (the backend). */
+  @Get('mock-test-cards')
+  getTestCards() {
+    return TEST_CARDS;
+  }
+
+  /**
+   * Mock equivalent of submitting the card on E-XEZINE's hosted page. The card number
+   * determines the outcome (test-cards.ts); a malformed or expired card is rejected as a
+   * 400 card-entry error, distinct from a payment decline. On success/decline/fail we run
+   * the same refreshStatus() path the real webhook triggers, then hand back the return URL.
+   */
+  @Post('mock/:token/pay')
+  async payMockCheckout(@Param('token') token: string, @Body() dto: PayMockCheckoutDto) {
+    const cardError = validateCard(dto);
+    if (cardError) {
+      throw new BadRequestException(cardError);
+    }
+    const { record, redirectUrl } = this.mockProvider.resolveMockCheckoutByCard(
+      token,
+      dto.cardNumber,
+    );
     await this.orders.refreshStatus(record.orderId);
     return { redirectUrl };
   }
