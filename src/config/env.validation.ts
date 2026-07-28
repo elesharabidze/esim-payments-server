@@ -10,6 +10,10 @@ import {
   validateSync,
 } from 'class-validator';
 
+function hasNoConnectionString(env: EnvironmentVariables) {
+  return !env.DATABASE_URL && !env.POSTGRES_URL;
+}
+
 class EnvironmentVariables {
   @IsOptional()
   @IsNumberString()
@@ -21,20 +25,44 @@ class EnvironmentVariables {
   @IsUrl({ require_tld: false })
   BACKEND_URL!: string;
 
+  // Either a single connection string (what hosted Postgres providers give you)
+  // or the five discrete DB_* settings below. The string wins when both are set.
+  @IsOptional()
+  @IsString()
+  DATABASE_URL?: string;
+
+  // Vercel Postgres injects this name rather than DATABASE_URL.
+  @IsOptional()
+  @IsString()
+  POSTGRES_URL?: string;
+
+  @ValidateIf(hasNoConnectionString)
   @IsString()
   DB_HOST!: string;
 
+  @ValidateIf(hasNoConnectionString)
   @IsNumberString()
   DB_PORT!: string;
 
+  @ValidateIf(hasNoConnectionString)
   @IsString()
   DB_USERNAME!: string;
 
+  @ValidateIf(hasNoConnectionString)
   @IsString()
   DB_PASSWORD!: string;
 
+  @ValidateIf(hasNoConnectionString)
   @IsString()
   DB_NAME!: string;
+
+  @IsOptional()
+  @IsBooleanString()
+  DB_SSL?: string;
+
+  @IsOptional()
+  @IsBooleanString()
+  DB_SYNCHRONIZE?: string;
 
   @IsOptional()
   @IsIn(['mock', 'exezine'])

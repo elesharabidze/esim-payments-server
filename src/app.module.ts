@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { TypeOrmModule, TypeOrmModuleOptions } from '@nestjs/typeorm';
 import configuration from './config/configuration';
 import { validate } from './config/env.validation';
 import { CatalogModule } from './catalog/catalog.module';
@@ -20,17 +20,30 @@ import { Esim } from './esim/entities/esim.entity';
     }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'postgres',
-        host: config.get('database.host'),
-        port: config.get('database.port'),
-        username: config.get('database.username'),
-        password: config.get('database.password'),
-        database: config.get('database.name'),
-        entities: [Plan, Order, Esim],
-        // Fine for a demo/test project; a real app would use migrations instead.
-        synchronize: true,
-      }),
+      useFactory: (config: ConfigService): TypeOrmModuleOptions => {
+        const url = config.get<string>('database.url');
+
+        return {
+          type: 'postgres',
+          // A connection string carries the credentials itself, so the discrete
+          // settings are only consulted when DATABASE_URL is absent.
+          ...(url
+            ? { url }
+            : {
+                host: config.get<string>('database.host'),
+                port: config.get<number>('database.port'),
+                username: config.get<string>('database.username'),
+                password: config.get<string>('database.password'),
+                database: config.get<string>('database.name'),
+              }),
+          ssl: config.get<boolean>('database.ssl')
+            ? { rejectUnauthorized: config.get<boolean>('database.sslRejectUnauthorized') }
+            : false,
+          poolSize: config.get<number>('database.poolSize'),
+          entities: [Plan, Order, Esim],
+          synchronize: config.get<boolean>('database.synchronize'),
+        };
+      },
     }),
     CatalogModule,
     OrdersModule,
