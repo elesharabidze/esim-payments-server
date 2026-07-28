@@ -2,6 +2,7 @@ import { plainToInstance } from 'class-transformer';
 import {
   IsBooleanString,
   IsIn,
+  IsNotEmpty,
   IsNumberString,
   IsOptional,
   IsString,
@@ -14,6 +15,11 @@ function hasNoConnectionString(env: EnvironmentVariables) {
   return !env.DATABASE_URL && !env.POSTGRES_URL;
 }
 
+/** Mirrors the provider inference in configuration.ts, so validation matches what boots. */
+function usesExezine(env: EnvironmentVariables) {
+  return (env.PAYMENT_PROVIDER ?? (env.EXEZINE_SHOP_ID ? 'exezine' : 'mock')) === 'exezine';
+}
+
 class EnvironmentVariables {
   @IsOptional()
   @IsNumberString()
@@ -24,6 +30,11 @@ class EnvironmentVariables {
 
   @IsUrl({ require_tld: false })
   BACKEND_URL!: string;
+
+  /** Comma-separated browser origins allowed to call this API. Defaults to FRONTEND_URL. */
+  @IsOptional()
+  @IsString()
+  CORS_ORIGINS?: string;
 
   // Either a single connection string (what hosted Postgres providers give you)
   // or the five discrete DB_* settings below. The string wins when both are set.
@@ -65,14 +76,28 @@ class EnvironmentVariables {
   DB_SYNCHRONIZE?: string;
 
   @IsOptional()
+  @IsBooleanString()
+  DB_SSL_REJECT_UNAUTHORIZED?: string;
+
+  @IsOptional()
+  @IsNumberString()
+  DB_POOL_MAX?: string;
+
+  @IsOptional()
+  @IsNumberString()
+  DB_RETRY_ATTEMPTS?: string;
+
+  @IsOptional()
   @IsIn(['mock', 'exezine'])
   PAYMENT_PROVIDER?: 'mock' | 'exezine';
 
-  @ValidateIf((env) => env.PAYMENT_PROVIDER === 'exezine')
+  @ValidateIf(usesExezine)
+  @IsNotEmpty()
   @IsString()
   EXEZINE_SHOP_ID?: string;
 
-  @ValidateIf((env) => env.PAYMENT_PROVIDER === 'exezine')
+  @ValidateIf(usesExezine)
+  @IsNotEmpty()
   @IsString()
   EXEZINE_SECRET_KEY?: string;
 
@@ -80,7 +105,10 @@ class EnvironmentVariables {
   @IsUrl({ require_tld: false })
   EXEZINE_CHECKOUT_BASE_URL?: string;
 
-  @IsOptional()
+  // Without this the webhook handler rejects every notification, so payments would silently
+  // never settle. Better to refuse to boot than to look healthy and lose every payment.
+  @ValidateIf(usesExezine)
+  @IsNotEmpty()
   @IsString()
   EXEZINE_WEBHOOK_PUBLIC_KEY?: string;
 

@@ -5,10 +5,23 @@ const databaseUrl = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
 // Managed Postgres requires TLS; a local docker-compose instance does not serve it.
 const sslDefault = databaseUrl ? 'true' : 'false';
 
+const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
+
+/**
+ * Browsers may only call this API from the storefront. CORS_ORIGINS exists because a single
+ * frontend is often reachable under more than one hostname - Vercel preview deployments, an
+ * apex domain alongside the *.vercel.app one - and each needs listing explicitly.
+ */
+const corsOrigins = (process.env.CORS_ORIGINS ?? frontendUrl)
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 export default () => ({
   port: parseInt(process.env.PORT ?? '3000', 10),
-  frontendUrl: process.env.FRONTEND_URL ?? 'http://localhost:5173',
+  frontendUrl,
   backendUrl: process.env.BACKEND_URL ?? 'http://localhost:3000',
+  corsOrigins,
   database: {
     url: databaseUrl,
     host: process.env.DB_HOST ?? 'localhost',

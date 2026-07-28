@@ -8,7 +8,10 @@ import { AppModule } from './app.module';
 type NodeHandler = (req: IncomingMessage, res: ServerResponse) => void;
 
 function configure(app: INestApplication) {
-  app.enableCors({ origin: true, credentials: true });
+  // Only the storefront may call this API from a browser. Reflecting every origin would let
+  // any page drive a customer's checkout, and there is no cookie/session for CORS to protect
+  // here, so an explicit allowlist costs nothing.
+  app.enableCors({ origin: app.get(ConfigService).get<string[]>('corsOrigins') ?? [] });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   JoinColumn,
   ManyToOne,
   OneToOne,
@@ -24,6 +25,8 @@ export class Order {
   @Column()
   planId!: string;
 
+  /** Indexed: the guest order lookup (`GET /api/orders?email=`) has no other way in. */
+  @Index()
   @Column()
   customerEmail!: string;
 
@@ -36,6 +39,11 @@ export class Order {
   @Column({ length: 3 })
   currency!: string;
 
+  /**
+   * The provider's checkout token. Indexed because both the webhook and the customer's
+   * return page reach the order through this column rather than through the primary key.
+   */
+  @Index()
   @Column({ nullable: true })
   paymentToken?: string;
 

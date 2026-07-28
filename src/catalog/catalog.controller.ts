@@ -1,4 +1,5 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
+import { ParseIdPipe } from '../common/parse-id.pipe';
 import { CatalogService } from './catalog.service';
 
 @Controller('plans')
@@ -16,7 +17,7 @@ export class CatalogController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
+  findOne(@Param('id', ParseIdPipe) id: string) {
     return this.catalog.findOne(id);
   }
 }

@@ -7,6 +7,7 @@ import { CatalogModule } from './catalog/catalog.module';
 import { OrdersModule } from './orders/orders.module';
 import { EsimModule } from './esim/esim.module';
 import { PaymentsModule } from './payments/payments.module';
+import { HealthModule } from './health/health.module';
 import { Plan } from './catalog/entities/plan.entity';
 import { Order } from './orders/entities/order.entity';
 import { Esim } from './esim/entities/esim.entity';
@@ -50,6 +51,7 @@ import { Esim } from './esim/entities/esim.entity';
     OrdersModule,
     EsimModule,
     PaymentsModule,
+    HealthModule,
   ],
 })
 export class AppModule {}

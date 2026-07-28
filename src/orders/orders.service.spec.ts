@@ -24,6 +24,8 @@ describe('OrdersService', () => {
     ordersRepo = {
       create: jest.fn((data) => ({ ...data })),
       save: jest.fn(async (order) => order),
+      // The conditional status transition; "1 row affected" means this caller won the claim.
+      update: jest.fn(async () => ({ affected: 1 })),
       findOne: jest.fn(),
       find: jest.fn(),
     };
@@ -104,6 +106,43 @@ describe('OrdersService', () => {
       currency: 'USD',
     });
     expect(order.status).toBe(OrderStatus.DECLINED);
+    expect(esim.provisionForOrder).not.toHaveBeenCalled();
+  });
+
+  it('does not provision an eSIM when another caller already claimed the paid transition', async () => {
+    // What the webhook sees when the customer's return page got there a moment earlier:
+    // its own conditional UPDATE matches no row.
+    ordersRepo.update.mockResolvedValue({ affected: 0 });
+    ordersRepo.findOne.mockResolvedValue({
+      id: 'o1',
+      status: OrderStatus.PAID,
+      esim: { id: 'e1' },
+    });
+
+    const order: any = { id: 'o1', status: OrderStatus.AWAITING_PAYMENT };
+    const result = await service.applyPaymentStatus(order, {
+      status: 'successful',
+      uid: 'uid-1',
+      amountMinorUnits: 499,
+      currency: 'USD',
+    });
+
+    expect(esim.provisionForOrder).not.toHaveBeenCalled();
+    expect(result.status).toBe(OrderStatus.PAID);
+    expect(result.esim).toEqual({ id: 'e1' });
+  });
+
+  it('leaves the order untouched while the checkout is still pending at the provider', async () => {
+    const order: any = { id: 'o1', status: OrderStatus.AWAITING_PAYMENT };
+    await service.applyPaymentStatus(order, {
+      status: 'pending',
+      uid: null,
+      amountMinorUnits: 499,
+      currency: 'USD',
+    });
+
+    expect(order.status).toBe(OrderStatus.AWAITING_PAYMENT);
+    expect(ordersRepo.update).not.toHaveBeenCalled();
     expect(esim.provisionForOrder).not.toHaveBeenCalled();
   });
 

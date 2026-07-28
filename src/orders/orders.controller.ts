@@ -1,4 +1,5 @@
 import { Body, Controller, Get, NotFoundException, Param, Post, Query } from '@nestjs/common';
+import { ParseIdPipe } from '../common/parse-id.pipe';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto';
@@ -27,17 +28,17 @@ export class OrdersController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
+  findOne(@Param('id', ParseIdPipe) id: string) {
     return this.orders.findOne(id);
   }
 
   @Post(':id/checkout')
-  checkout(@Param('id') id: string) {
+  checkout(@Param('id', ParseIdPipe) id: string) {
     return this.orders.checkout(id);
   }
 
   @Post(':id/refresh-status')
-  refreshStatus(@Param('id') id: string) {
+  refreshStatus(@Param('id', ParseIdPipe) id: string) {
     return this.orders.refreshStatus(id);
   }
 }

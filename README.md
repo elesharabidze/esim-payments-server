@@ -22,6 +22,10 @@ src/
                 - ExezineProvider: calls the real E-XEZINE PSP Core API
                 - MockProvider:    simulates it in-process, no credentials needed
     payments.controller.ts  webhook endpoint + mock-checkout endpoints
+    mock-only.guard.ts      404s the mock endpoints unless the mock provider is active
+  health/     Liveness probe, including database reachability
+  common/     Shared pipes
+  config/     Env parsing (configuration.ts) and boot-time validation (env.validation.ts)
 ```
 
 ### Why a mock payment provider
@@ -55,6 +59,16 @@ selected purely by config (`PAYMENT_PROVIDER=mock|exezine`, see `.env.example`):
   is used only to derive the outcome and is never stored - mirroring the PCI rule that card
   data must not touch merchant storage.
 
+  A checkout's state lives in the `orders` table rather than in the provider instance: on a
+  serverless host the process that creates a checkout is rarely the one that later reads it
+  back, so an in-memory store would lose the token between requests. The order row already
+  carries everything a checkout needs, and the description and return URL are rebuilt from the
+  same helpers `OrdersService` used to create them.
+
+  The whole `/api/payments/mock/*` surface is guarded by `MockOnlyGuard` and answers `404`
+  unless the mock provider is the active one - otherwise, with real credentials configured,
+  anyone holding a payment token could settle an order without paying.
+
 Because `OrdersService` only depends on the `PaymentProvider` interface, dropping in real
 E-XEZINE credentials (`PAYMENT_PROVIDER=exezine`, `EXEZINE_SHOP_ID`, `EXEZINE_SECRET_KEY`,
 `EXEZINE_WEBHOOK_PUBLIC_KEY`) requires no code changes anywhere else in the app.
@@ -76,6 +90,12 @@ webhook payload shape:
 `POST /api/orders/:id/refresh-status` runs the identical re-fetch-and-apply logic, so the
 frontend's `/checkout/return` page can synchronously resolve the order even if the webhook
 hasn't arrived yet (common with hosted-checkout redirects racing the webhook).
+
+Because those two paths regularly resolve the same checkout at the same moment,
+`applyPaymentStatus()` claims the transition with a conditional `UPDATE ... WHERE status <> ?`
+rather than a read-modify-write save. Exactly one caller sees a row affected and goes on to
+provision the eSIM; the others just re-read the order. Without that, both would provision and
+the second insert would violate the unique constraint on `esims.orderId`.
 
 ## Getting started
 
@@ -118,6 +138,7 @@ npm run test:e2e  # e2e test against a real Postgres connection (uses the same D
 
 | Method | Path                              | Description                                   |
 | ------ | --------------------------------- | ---------------------------------------------- |
+| GET    | `/api/health`                     | Liveness probe; reports database reachability and the active payment provider |
 | GET    | `/api/plans`                      | List eSIM plans (`?region=` / `?countryCode=`) |
 | GET    | `/api/plans/regions`              | Distinct list of regions                       |
 | GET    | `/api/plans/:id`                  | Plan detail                                    |
@@ -132,12 +153,26 @@ npm run test:e2e  # e2e test against a real Postgres connection (uses the same D
 | GET    | `/api/payments/mock-test-cards`   | (mock provider only) list of test cards        |
 | POST   | `/api/payments/mock/:token/pay`   | (mock provider only) submit a card, resolves the checkout |
 
+A malformed `:id` answers `404` rather than reaching Postgres, which would reject the uuid
+cast with a `500`. The mock endpoints answer `404` unless `PAYMENT_PROVIDER=mock`.
+
+## Deployment
+
+Deployed on Vercel, which detects the NestJS framework and builds `src/main.ts`. That file
+exports both a standalone `bootstrap()` for `node dist/main` and a default request handler for
+the serverless host, which is built once per instance and reused across warm invocations.
+
+Environment variables to set on the host: `DATABASE_URL` (Neon), `FRONTEND_URL`, `BACKEND_URL`,
+and `PAYMENT_PROVIDER`. Everything else has a sensible default - see `.env.example`.
+
 ## Known simplifications (demo project)
 
 - No authentication - checkout is guest/email-based, and `/api/orders?email=` trusts the
   caller's claimed email rather than verifying ownership. A production build would put this
   behind a magic-link or account login.
-- `synchronize: true` on TypeORM instead of migrations, for setup simplicity.
+- `synchronize: true` on TypeORM instead of migrations, for setup simplicity. Set
+  `DB_SYNCHRONIZE=false` and switch to migrations before a schema anyone depends on.
 - eSIM provisioning is entirely simulated (random ICCID/activation code) - there's no real
   SM-DP+/MNO behind it, since E-XEZINE only handles payment.
-- `MockProvider`'s state lives in memory and resets on server restart.
+- In `PAYMENT_PROVIDER=mock` there is no signature to verify, so `POST /api/payments/webhook`
+  accepts unsigned calls. It is authenticated only in `exezine` mode.

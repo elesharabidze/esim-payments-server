@@ -7,3 +7,8 @@ coverage/
 *.log
 .DS_Store
 .vercel
+
+# Local editor / tooling config, not part of the project
+.vscode/
+.cursor/
+*.session.sql

@@ -12,9 +12,12 @@ import {
   RawBodyRequest,
   Req,
   UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common';
+import { isUUID } from 'class-validator';
 import { Request } from 'express';
 import { OrdersService } from '../orders/orders.service';
+import { MockOnlyGuard } from './mock-only.guard';
 import { MockProvider } from './provider/mock.provider';
 import { PAYMENT_PROVIDER, PaymentProvider } from './provider/payment-provider.interface';
 import { PayMockCheckoutDto } from './dto/pay-mock-checkout.dto';
@@ -54,14 +57,17 @@ export class PaymentsController {
       transaction?: { tracking_id?: string; token?: string };
       checkout?: { token?: string; order?: { tracking_id?: string } };
     };
+    // tracking_id is the order id we sent when creating the checkout. It arrives from
+    // outside, so it is shape-checked before it can reach a uuid column.
     const trackingId = payload?.transaction?.tracking_id ?? payload?.checkout?.order?.tracking_id;
     const token = payload?.transaction?.token ?? payload?.checkout?.token;
 
-    const order = trackingId
-      ? await this.orders.findOne(trackingId).catch(() => null)
-      : token
-        ? await this.orders.findByToken(token)
-        : null;
+    const order =
+      trackingId && isUUID(trackingId)
+        ? await this.orders.findOne(trackingId).catch(() => null)
+        : token
+          ? await this.orders.findByToken(token)
+          : null;
 
     if (!order) {
       this.logger.warn(
@@ -75,12 +81,14 @@ export class PaymentsController {
   }
 
   @Get('mock/:token')
+  @UseGuards(MockOnlyGuard)
   getMockCheckout(@Param('token') token: string) {
     return this.mockProvider.getMockCheckout(token);
   }
 
   /** Test cards shown on the mock hosted page, so the list lives in one place (the backend). */
   @Get('mock-test-cards')
+  @UseGuards(MockOnlyGuard)
   getTestCards() {
     return TEST_CARDS;
   }
@@ -93,6 +101,7 @@ export class PaymentsController {
    * the terminal-state guards behave identically - then we hand back the return URL.
    */
   @Post('mock/:token/pay')
+  @UseGuards(MockOnlyGuard)
   async payMockCheckout(@Param('token') token: string, @Body() dto: PayMockCheckoutDto) {
     const cardError = validateCard(dto);
     if (cardError) {
